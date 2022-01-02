@@ -6,6 +6,8 @@
 
 This repository contains the source code for BMVC 2021 paper "360° Optical Flow using Tangent Images".
 
+![360° Optical Flow using Tangent Images](/images/method_pipeline.png)
+
 # 2. Running code
 
 In this project root folder run `pip install -r requirements.txt` to install the dependency.
