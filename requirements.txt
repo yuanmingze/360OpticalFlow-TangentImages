@@ -1,0 +1,7 @@
+colorama
+matplotlib
+numpy
+Pillow
+scipy
+scikit-image
+opencv-python
