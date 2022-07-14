@@ -1,6 +1,11 @@
+import csv
+import os
+
 import numpy as np
 
-
+import image_io
+import flow_io
+import flow_postproc
 import flow_warp
 import spherical_coordinates
 
@@ -44,7 +49,7 @@ def available_pixel(flow, of_mask=None, unknown_value=UNKNOWN_FLOW_THRESH):
         index_valid = index_valid & of_mask
 
     if np.sum(index_valid) != index_valid.size:
-        log.info("In the optical flow there are {} pixels are unavailable.".format(np.sum(index_valid)))
+        log.debug("In the optical flow there are {} ({}) pixels are available.".format(np.sum(index_valid), np.sum(index_valid) / float(index_valid.size)))
 
     return index_valid
 
@@ -210,3 +215,137 @@ def AAE_mat(of_ground_truth, of_evaluation, spherical=False, of_mask=None):
         angles_mat = abs(angles_mat)
 
     return angles_mat, of_available_index
+
+
+def opticalflow_metric(flo_gt, flo_eva, erp_flo_error_filename_prefix=None, flo_mask=None, min_ratio=0.1, max_ratio=0.9, verbose=True):
+    """ Compute error and error map.
+
+    :param flo_gt: The ground truth optical flow.
+    :type flo_gt: numpy
+    :param flo_eva: The evaluated optical flow.
+    :type flo_eva: numpy
+    :param erp_flo_error_filename_prefix: The outo
+    :type erp_flo_error_filename_prefix: str
+    :param flo_mask: The optical flow mask, 0 is unavailable, defaults to None
+    :type flo_mask: numpy, optional
+    """
+    # error value
+    aae = AAE(flo_gt, flo_eva, spherical=False, of_mask=flo_mask)
+    epe = EPE(flo_gt, flo_eva, spherical=False, of_mask=flo_mask)
+    rms = RMSE(flo_gt, flo_eva, spherical=False, of_mask=flo_mask)
+    aae_sph = AAE(flo_gt, flo_eva, spherical=True, of_mask=flo_mask)
+    epe_sph = EPE(flo_gt, flo_eva, spherical=True, of_mask=flo_mask)
+    rms_sph = RMSE(flo_gt, flo_eva, spherical=True, of_mask=flo_mask)
+
+    if verbose:
+        log.debug("AAE: {}".format(aae))
+        log.debug("EPE: {}".format(epe))
+        log.debug("RMS: {}".format(rms))
+        log.debug("AAE Spherical: {}".format(aae_sph))
+        log.debug("EPE Spherical: {}".format(epe_sph))
+        log.debug("RMS Spherical: {}".format(rms_sph))
+
+    # error map
+    if erp_flo_error_filename_prefix is not None:
+        log.debug("AAE_mat: {}".format(erp_flo_error_filename_prefix + "_aae_mat.jpg"))
+        aae_mat, _ = AAE_mat(flo_gt, flo_eva, False, flo_mask)
+        aae_mat_vis = image_io.visual_data(aae_mat, min_ratio, max_ratio)
+        image_io.image_save(aae_mat_vis, erp_flo_error_filename_prefix + "_aae_mat.jpg")
+
+        log.debug("AAE_Sph_mat: {}".format(erp_flo_error_filename_prefix + "_aae_mat_sph.jpg"))
+        aae_mat_sph, _ = AAE_mat(flo_gt, flo_eva, True, flo_mask)
+        aae_mat_sph_vis = image_io.visual_data(aae_mat_sph, min_ratio, max_ratio)
+        image_io.image_save(aae_mat_sph_vis, erp_flo_error_filename_prefix + "_aae_mat_sph.jpg")
+
+        log.debug("EPE_mat: {}".format(erp_flo_error_filename_prefix + "_epe_mat.jpg"))
+        epe_mat, _ = EPE_mat(flo_gt, flo_eva,  False, flo_mask)
+        epe_mat_vis = image_io.visual_data(epe_mat, min_ratio, max_ratio)
+        image_io.image_save(epe_mat_vis, erp_flo_error_filename_prefix + "_epe_mat.jpg")
+
+        log.debug("EPE_Sph_mat: {}".format(erp_flo_error_filename_prefix + "_epe_mat_sph.jpg"))
+        epe_mat_sph, _ = EPE_mat(flo_gt, flo_eva,  True, flo_mask)
+        epe_mat_sph_vis = image_io.visual_data(epe_mat_sph, min_ratio, max_ratio)
+        image_io.image_save(epe_mat_sph_vis, erp_flo_error_filename_prefix + "_epe_mat_sph.jpg")
+
+        log.debug("RMS_mat: {}".format(erp_flo_error_filename_prefix + "_rms_mat.jpg"))
+        rms_mat, _ = RMSE_mat(flo_gt, flo_eva,  False, flo_mask)
+        rms_mat_vis = image_io.visual_data(rms_mat, min_ratio, max_ratio)
+        image_io.image_save(rms_mat_vis, erp_flo_error_filename_prefix + "_rms_mat.jpg")
+
+        log.debug("RMS_Sph_mat: {}".format(erp_flo_error_filename_prefix + "_rms_mat_sph.jpg"))
+        rms_mat_sph, _ = RMSE_mat(flo_gt, flo_eva,  True, flo_mask)
+        rms_mat_sph_vis = image_io.visual_data(rms_mat_sph, min_ratio, max_ratio)
+        image_io.image_save(rms_mat_sph_vis, erp_flo_error_filename_prefix + "_rms_mat_sph.jpg")
+
+    return aae, epe, rms, aae_sph, epe_sph, rms_sph
+
+
+def opticalflow_metric_folder(of_dir, of_gt_dir, mask_filename_exp=None, result_csv_filename=None, visual_of_error=False, of_wraparound=True, skip_list = []):
+    """
+    1) "AAE", 'EPE', 'RMS', "SAAE", "SEPE", "SRMS" error to csv 
+    2) output optical flow error visualized image
+
+    :param of_dir: The absolute path of optical flow folder.
+    :type of_dir: str
+    :param of_gt_dir: The absolute path of ground truth optical flow folder.
+    :type of_gt_dir: str
+    :param mask_filename_exp: The mask file name expression.
+    :type mask_filename_exp: str
+    :param result_csv_filename: the csv file name , output to of_dir, defaults to None
+    :type result_csv_filename: str, optional
+    :param visual_of_error: Whether outout the error map to image, defaults to False,
+    :type visual_of_error: bool, optional
+    :param of_wraparound: process the wrap around before metric the optical flow.
+    :type of_wraparound: bool
+    """
+    if result_csv_filename is None:
+        result_csv_filepath = of_dir + "result.csv"
+    else:
+        result_csv_filepath = of_dir + result_csv_filename
+    result_file = open(result_csv_filepath, mode='w', newline='', encoding='utf-8')
+    result_csv_file = csv.writer(result_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    result_csv_file.writerow(["flo_filename", "AAE", 'EPE', 'RMS', "SAAE", "SEPE", "SRMS"])
+
+    filelist = os.listdir(of_dir)
+    filelist.sort()
+    for filename in filelist:
+        if not filename.endswith(".flo"):
+            continue
+        if filename in skip_list:
+            print("skip {} in {}".format(filename, skip_list))
+            continue
+
+        # load of and gt of
+        optical_flow = flow_io.read_flow_flo(of_dir + filename)
+        optical_flow_gt = flow_io.read_flow_flo(of_gt_dir + filename)
+
+        if optical_flow.shape != optical_flow_gt.shape:
+            # resize optical flow
+            log.warn("The optical flow shape is different, {} and {}.".format(optical_flow.shape, optical_flow_gt.shape))
+            width = optical_flow_gt.shape[1]
+            height = optical_flow_gt.shape[0]
+            optical_flow = flow_postproc.flow_resize(optical_flow, width_new=width, height_new=height)
+
+        if of_wraparound:
+            optical_flow = flow_postproc.erp_of_wraparound(optical_flow)
+            optical_flow_gt = flow_postproc.erp_of_wraparound(optical_flow_gt)
+        mask_erp_image = None
+        if mask_filename_exp is not None:
+            image_index = filename[0:4]
+            mask_erp_image = image_io.image_read(of_gt_dir + mask_filename_exp.format(int(image_index)))
+
+        # metric error
+        error_mat_vis_min_ratio = 0.1
+        error_mat_vis_max_ratio = 0.9
+        if visual_of_error:
+            aae, epe, rms, aae_sph, epe_sph, rms_sph = \
+                opticalflow_metric(optical_flow_gt, optical_flow, erp_flo_error_filename_prefix=of_dir + filename, flo_mask=mask_erp_image,
+                                   min_ratio=error_mat_vis_min_ratio, max_ratio=error_mat_vis_max_ratio, verbose=True)
+        else:
+            aae, epe, rms, aae_sph, epe_sph, rms_sph = \
+                opticalflow_metric(optical_flow_gt, optical_flow, erp_flo_error_filename_prefix=None, flo_mask=mask_erp_image,
+                                   min_ratio=error_mat_vis_min_ratio, max_ratio=error_mat_vis_max_ratio, verbose=True)
+        result_csv_file.writerow([filename, aae, epe, rms, aae_sph, epe_sph, rms_sph])
+        result_file.flush()
+
+    result_file.close()

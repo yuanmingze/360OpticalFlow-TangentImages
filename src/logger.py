@@ -43,7 +43,8 @@ class Logger:
     def __init__(self, name=None):
         # create logger
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
+        # self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
 
         # create console handler and set level to debug
         handler = logging.StreamHandler()

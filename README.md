@@ -12,7 +12,9 @@ This repository contains the source code for BMVC 2021 paper "360° Optical Flow
 
 In this project root folder run `pip install -r requirements.txt` to install the dependency.
 
-Than run `python main.py` to estimate the 360° optical flow with demo data.
+- Run `python main.py` to estimate the 360° optical flow with demo data.
+
+- Run `test_replica360.py` to estimate the 360° optical flow on the whole Replica 360° dataset and quantitative evaluate the result.
 
 # 3. Datasets
 

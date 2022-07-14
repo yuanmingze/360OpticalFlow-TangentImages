@@ -115,7 +115,7 @@ def flow2rotation_3d(erp_flow, mask_method="center"):
     src_points_2d_sph = sc.erp2sph(src_points_2d)
     tar_points_2d_sph = sc.erp2sph(tar_points_2d)
 
-    if mask_method is "center":
+    if mask_method == "center":
         # just use the center rows optical flow
         row_idx_start = int(height * 0.25)
         row_idx_end = int(height * 0.75)
